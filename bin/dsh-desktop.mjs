@@ -71,7 +71,7 @@ async function install() {
   const directory = await installArchive(p, input, manifest)
   console.log(`Installed Desktop ${manifest.distributionVersion} / Harness ${manifest.upstreamVersion}\n${directory}`)
   const running = Number.parseInt(await readFile(join(p.dshHome, 'profiles/desktop/linux-desktop-owner.lock'), 'utf8').catch(() => ''), 10)
-  if (await isAlive(running)) console.log(`Desktop is running (pid ${running}): close and reopen it to use this release.`)
+  if (Number.isSafeInteger(running) && await isAlive(running)) console.log(`Desktop is running (pid ${running}): close and reopen it to use this release.`)
 }
 async function doctor() {
   const checks = { platform: process.platform, arch: process.arch, display: Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY),
@@ -114,7 +114,16 @@ async function main() {
     console.log('Application files removed. Chats, credentials, profiles and upstream dsh retained.')
     return
   }
-  const selected = await release()
+  let selected
+  try { selected = await release() }
+  catch (error) {
+    // A fresh npm installation carries only the launcher; provision on first use so a blocked
+    // install script never leaves the user with a command that cannot start the app.
+    if (error.code !== 'ENOENT' || command === 'install' || command === 'uninstall') throw error
+    console.log('dsh-desktop: no payload installed yet; downloading it now.')
+    await install()
+    selected = await release()
+  }
   if (command === undefined && args.includes('--version')) {
     console.log(`dsh-desktop ${selected.manifest.distributionVersion}\nHarness ${selected.manifest.upstreamVersion}\nUpstream ${selected.manifest.upstreamCommit}\nRelease ${releaseId(selected.manifest)}\nPayload ${selected.directory}`)
     return

@@ -5,6 +5,10 @@
   "upstreamCommit": "fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159",
   "platform": "linux",
   "arch": "x64",
-  "artifact": null,
-  "payloadDigest": "235eba567224eeb71092c11c3740e61f2252e2af6bf0160c0634d380a485929b"
+  "artifact": {
+    "url": "https://github.com/oberdfr/dsh-desktop-linux/releases/download/v0.1.0/dsh-desktop-linux-0.1.0-fcc0ad462172.tar.gz",
+    "sha256": "86e232f8cd25a4f64b00be2fd19a584c54ab99adf8be041d5752fec36b4397ec",
+    "bytes": 411455253
+  },
+  "payloadDigest": "351f595b4a03d42385addb18dbe6c42bfb7712fd8ff9e4196d15fc1efe7dcce4"
 }

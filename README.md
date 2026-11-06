@@ -76,20 +76,28 @@ Because the Web client has no deep-link route, the window opens on the most rece
 
 ## Install globally with npm
 
-The published package is a thin launcher: it downloads the release archive named by its own `release.json`, verifies the digest, and installs it per user. Nothing is built on the user's machine and `dsh` is not touched.
+The published package is a thin launcher: it downloads the release archive named by its own `release.json`, verifies its size, SHA-256 and content digest, and installs it per user. Nothing is built locally and `dsh` is not touched.
 
 ```sh
-# after this package is published and the archive is hosted over HTTPS
-npm install -g @you/dsh-desktop-linux
-dsh-desktop
+npm install -g --allow-remote https://github.com/oberdfr/dsh-desktop-linux/releases/download/v0.1.0/dsh-desktop-linux-0.1.0.tgz
+dsh-desktop            # first run downloads the payload, then starts the app
 ```
+
+`--allow-remote` is required because npm 11 refuses remote tarballs by default. npm 11 also blocks lifecycle scripts unless they are allowlisted, so the payload download can happen on first launch instead:
+
+```sh
+npm install -g --allow-remote --allow-scripts=dsh-desktop-linux <tarball>
+# or let the first `dsh-desktop` run provision it
+```
+
+Nothing is lost when the install script is blocked: `dsh-desktop` detects the missing payload, downloads and verifies it, then continues. `dsh-desktop install` performs the same step explicitly.
 
 Two prerequisites belong to whoever publishes, not to the installer:
 
-1. **A hosted archive.** Upload the release archive over HTTPS (for example a GitHub Release asset) and record it: `node scripts/package.mjs --archive <file> --base-url https://host/releases`.
-2. **An npm scope you own.** Build the publishable package with `DSH_DESKTOP_NPM_NAME=@you/dsh-desktop-linux npm run package:npm`, then `npm publish --access public dist/npm`.
+1. **A hosted archive.** Upload the release archive over HTTPS (this repository uses a GitHub Release asset) and record it: `node scripts/package.mjs --base-url https://…/releases/download/v0.1.0`.
+2. **An npm scope you own**, if you publish to a registry: `DSH_DESKTOP_NPM_NAME=@you/dsh-desktop-linux npm run package:npm`, then `npm publish --access public dist/npm`. Installing from the release tarball URL needs no registry account.
 
-`npm install -g` cannot carry a 1.3 GB payload inside the tarball, so the package ships code and metadata only; the postinstall performs the verified download. If install scripts are disabled, `dsh-desktop install` does the same step explicitly. Until both prerequisites exist, install from a local archive as shown above.
+`npm install -g` cannot carry a 1.3 GB payload inside the package, so the package ships code and metadata only; the download is a separate verified step.
 
 ## Data ownership
 
