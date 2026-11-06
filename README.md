@@ -48,7 +48,9 @@ node bin/dsh-desktop.mjs install --archive <release.tar.gz>
 
 Installation is per-user: `$XDG_DATA_HOME/dsh-desktop-linux` (payloads and launcher), `$XDG_CACHE_HOME` (downloads), `$XDG_CONFIG_HOME` (Electron preferences). No root, no FUSE, no writes to another application's files.
 
-An archive is verified (size, SHA-256, entry types, one containment root, no links escaping the payload, embedded release identity) and unpacked into a staging directory. Only then is the active release reference replaced. A failure leaves the previous release active. A lock file makes concurrent installs fail loudly instead of racing. The installer refuses to overwrite a desktop entry it does not own.
+An archive is verified (size, SHA-256, entry types, one containment root, no links escaping the payload, embedded release identity, and a content digest over the whole payload) and unpacked into a staging directory. Only then is the active release reference replaced. A failure leaves the previous release active. A lock file makes concurrent installs fail loudly instead of racing. The installer refuses to overwrite a desktop entry it does not own.
+
+Release identity includes the payload digest, so a rebuilt archive with the same version and commit installs beside the old one and becomes active instead of silently reusing stale files. `dsh-desktop --version` prints the active release id and payload path; the previously active release is retained for rollback and older ones are pruned.
 
 ## Commands
 
@@ -109,6 +111,14 @@ Status is per capability, verified on this build unless noted.
 ## Release artefact
 
 The packaged archive for this build is `dist/dsh-desktop-linux-0.1.0-fcc0ad462172.tar.gz` (393 MB, SHA-256 `89ae1f01c7d29dabf0131d7f6cbffaaad4d3c7e785e2709eed0c13d050ee250a`). It is a local build: no npm publication, no AUR package, no remote hosting.
+
+## Troubleshooting
+
+**The launcher opens an older build.** `dsh-desktop --version` prints `Release` and `Payload`. If they name a different directory than the archive just installed, the install did not activate; re-run it and check that it reports the new path. Builds made before content-addressed identities reused the version-named directory, so remove `~/.local/share/dsh-desktop-linux/releases/0.1.0-<commit>-x64` once.
+
+**The window shows no caption buttons.** They are native overlay controls: a screenshot of the page cannot include them, and a compositor without server-side decorations may hide them. Launch from the desktop entry rather than a raw `electron` process.
+
+**Nothing appears on Wayland.** Confirm `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` in the launching environment; the application reports the Chromium failure instead of falling back to `--no-sandbox`.
 
 ## Licence
 

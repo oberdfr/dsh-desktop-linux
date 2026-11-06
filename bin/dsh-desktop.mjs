@@ -4,7 +4,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import { readFile, access, rm, stat } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { paths } from '../lib/paths.mjs'
+import { paths, releaseId } from '../lib/paths.mjs'
 import { parseManifest } from '../lib/manifest.mjs'
 import { installArchive, downloadArchive, activeRelease, withLock, verifyPayload, digest } from '../lib/install.mjs'
 import { isAlive } from '../lib/lock.mjs'
@@ -111,7 +111,7 @@ async function main() {
   }
   const selected = await release()
   if (command === undefined && args.includes('--version')) {
-    console.log(`dsh-desktop ${selected.manifest.distributionVersion}\nHarness ${selected.manifest.upstreamVersion}\nUpstream ${selected.manifest.upstreamCommit}`)
+    console.log(`dsh-desktop ${selected.manifest.distributionVersion}\nHarness ${selected.manifest.upstreamVersion}\nUpstream ${selected.manifest.upstreamCommit}\nRelease ${releaseId(selected.manifest)}\nPayload ${selected.directory}`)
     return
   }
   if (command === 'plugin' || command === 'cli') {

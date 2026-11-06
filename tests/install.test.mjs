@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process'
 import * as tar from 'tar'
 import { paths, releaseId } from '../lib/paths.mjs'
 import { parseManifest, checkPlatform } from '../lib/manifest.mjs'
-import { activeRelease, atomicJson, digest, installArchive, validateArchive, withLock } from '../lib/install.mjs'
+import { activeRelease, atomicJson, digest, installArchive, validateArchive, withLock, digestPayload } from '../lib/install.mjs'
 import { verifyUpstream } from '../scripts/upstream.mjs'
 
 const baseManifest = () => ({ schemaVersion: 1, distributionVersion: '0.1.0', upstreamVersion: '0.2.2-rc.1',
@@ -23,9 +23,11 @@ async function fixture(t, mutate) {
   }
   await writeFile(join(payload, 'release.json'), JSON.stringify(baseManifest()))
   await mutate?.(payload)
+  const payloadDigest = await digestPayload(payload)
+  await writeFile(join(payload, 'release.json'), JSON.stringify({ ...baseManifest(), payloadDigest }))
   const archive = join(root, 'payload.tar.gz')
   await tar.c({ file: archive, cwd: join(root, 'source'), gzip: true, portable: true }, ['payload'])
-  const manifest = { ...baseManifest(), artifact: { url: 'https://example.com/payload.tar.gz', sha256: await digest(archive), bytes: (await stat(archive)).size } }
+  const manifest = { ...baseManifest(), payloadDigest, artifact: { url: 'https://example.com/payload.tar.gz', sha256: await digest(archive), bytes: (await stat(archive)).size } }
   return { p, root, payload, archive, manifest }
 }
 
@@ -59,6 +61,28 @@ test('installs and re-installs a verified archive without touching Harness data'
   assert.match(await readFile(f.p.desktop, 'utf8'), /X-DSH-Desktop-Owner=dsh-desktop-linux/)
   assert.doesNotMatch(await readFile(f.p.wrapper, 'utf8'), /--no-sandbox/)
   await assert.rejects(access(f.p.lock), { code: 'ENOENT' })
+})
+test('rejects a payload whose content differs from the declared digest', async t => {
+  const f = await fixture(t)
+  await assert.rejects(installArchive(f.p, f.archive, { ...f.manifest, payloadDigest: 'b'.repeat(64) }), /content digest/)
+  await assert.rejects(access(f.p.active), { code: 'ENOENT' })
+})
+test('a rebuilt release with new content activates a new directory and keeps the previous one', async t => {
+  const f = await fixture(t)
+  const first = await installArchive(f.p, f.archive, f.manifest)
+  // Same version and commit, different bytes: the identity must change with the content.
+  await writeFile(join(f.payload, 'app/lib/main.js'), 'rebuilt')
+  const second = { ...f.manifest }
+  second.payloadDigest = await digestPayload(f.payload)
+  await writeFile(join(f.payload, 'release.json'), JSON.stringify({ ...baseManifest(), payloadDigest: second.payloadDigest }))
+  const rebuiltArchive = join(f.root, 'rebuilt.tar.gz')
+  await tar.c({ file: rebuiltArchive, cwd: join(f.root, 'source'), gzip: true, portable: true }, ['payload'])
+  second.artifact = { url: 'https://example.com/rebuilt.tar.gz', sha256: await digest(rebuiltArchive), bytes: (await stat(rebuiltArchive)).size }
+  const active = await installArchive(f.p, rebuiltArchive, second)
+  assert.notEqual(active, first)
+  assert.equal((await activeRelease(f.p)).directory, active)
+  await access(first)
+  assert.equal(await readFile(join(active, 'app/lib/main.js'), 'utf8'), 'rebuilt')
 })
 test('corrupt archives leave the active installation unchanged', async t => {
   const f = await fixture(t)

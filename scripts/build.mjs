@@ -60,7 +60,16 @@ try {
   await run(process.execPath, ['--import', pathToFileURL(tsx).href, join(root, 'scripts/prepare-runtime.mts'), join(output, 'runtime'), runtime])
   await mkdir(join(output, 'runtime/bin'), { recursive: true })
   await writeFile(join(output, 'runtime/bin/node'), '#!/bin/sh\nexec "$(dirname -- "$0")/../primary-runtime/dependencies/node/bin/node" "$@"\n', { mode: 0o755 })
-  await writeFile(join(output, 'release.json'), await readFile(join(root, 'release.json')))
+  // Payload identity follows content: a rebuilt release with the same version must not reuse an
+  // older installation directory.
+  const base = JSON.parse(await readFile(join(root, 'release.json'), 'utf8'))
+  await writeFile(join(output, 'release.json'), `${JSON.stringify({ ...base, payloadDigest: undefined, artifact: null }, null, 2)}\n`)
+  const { digestPayload } = await import('../lib/install.mjs')
+  const payloadDigest = await digestPayload(output)
+  const record = { ...base, payloadDigest, artifact: null }
+  await writeFile(join(output, 'release.json'), `${JSON.stringify(record, null, 2)}\n`)
+  await writeFile(join(root, 'release.json'), `${JSON.stringify(record, null, 2)}\n`)
+  console.log(`Payload digest: ${payloadDigest}`)
   // Release inventory includes exact installed production dependencies and their lockfile.
   console.log(`Independent Linux payload: ${output}`)
 } finally { verifyUpstream() }
