@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "distributionVersion": "0.1.0",
+  "upstreamVersion": "0.2.2-rc.1",
+  "upstreamCommit": "fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159",
+  "platform": "linux",
+  "arch": "x64",
+  "artifact": null
+}

@@ -1,0 +1,47 @@
+name: Build Linux desktop
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_commit:
+        description: Upstream commit already pinned in upstream.lock.json (informational)
+        required: false
+# Building a new upstream release means updating upstream.lock.json in a reviewed commit first;
+# this workflow never mutates the pin or publishes anything.
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - name: Install carrier dependencies
+        run: npm install --ignore-scripts
+      - name: Verify the pin matches the dispatched input
+        if: inputs.upstream_commit != ''
+        run: node -e "const l=require('./upstream.lock.json');if(l.commit!==process.argv[1])process.exit(1)" "${{ inputs.upstream_commit }}"
+      - name: Clone, install and build unmodified upstream
+        run: npm run build:upstream
+      - name: Assemble the Linux payload
+        run: npm run build
+      - name: Unit tests
+        run: npm test
+      - name: Electron and Host smoke
+        run: xvfb-run -a npm run test:gui
+      - name: Confirm upstream is untouched
+        run: npm run verify:upstream
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-linux-payload
+          path: |
+            artifacts/verification
+            dist/payload/release.json
+            dist/payload/workspace-packages.json
+          retention-days: 14

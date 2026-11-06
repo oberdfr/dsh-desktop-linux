@@ -1,0 +1,22 @@
+{
+  "name": "dsh-desktop-linux",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent Linux Electron carrier for an unmodified DeepSeek Harness release",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=24.9.0" },
+  "bin": { "dsh-desktop": "bin/dsh-desktop.mjs" },
+  "files": ["bin", "lib", "release.json", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:upstream": "node scripts/upstream.mjs build",
+    "verify:upstream": "node scripts/upstream.mjs verify",
+    "package:release": "node scripts/package.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:gui": "node scripts/smoke-gui.mjs",
+    "postinstall": "node bin/dsh-desktop.mjs install --if-published"
+  },
+  "dependencies": { "tar": "7.5.22" },
+  "devDependencies": { "esbuild": "0.27.0", "playwright": "1.61.1" }
+}
