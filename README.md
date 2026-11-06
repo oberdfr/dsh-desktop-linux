@@ -56,7 +56,9 @@ Release identity includes the payload digest, so a rebuilt archive with the same
 
 ```sh
 dsh-desktop                       # launch or focus the running instance
-dsh-desktop --version             # distribution and embedded Harness versions
+dsh-desktop ~/project             # open or create that workspace and start a chat in it
+dsh-desktop --workspace ~/project # same, explicit form
+dsh-desktop --version             # distribution, Harness, release id and payload path
 dsh-desktop doctor                # read-only environment and install diagnostics
 dsh-desktop plugin list|add|remove ...   # forwarded to the bundled Desktop CLI
 dsh-desktop cli <dsh arguments>   # explicit escape to the bundled CLI
@@ -65,6 +67,29 @@ dsh-desktop uninstall --yes       # removes owned app files; keeps chats, creden
 ```
 
 `plugin` implicitly selects the reserved `desktop` profile and requires the app to be fully quit. Profile writes, version compatibility checks and the write lock stay with the upstream Desktop CLI; this project reimplements none of them.
+
+### Open a folder from the terminal
+
+`dsh-desktop ~/project` resolves the directory, registers it through the Host workspace API (idempotent: an existing registration is reused), starts a blank Session in it, and then loads the window. A second invocation reaches the running instance, registers the folder and reloads the view. The directory must already exist; the command never creates files on disk.
+
+Because the Web client has no deep-link route, the window opens on the most recent Session in that workspace. With several Sessions there, the newest is the one created by this command.
+
+## Install globally with npm
+
+The published package is a thin launcher: it downloads the release archive named by its own `release.json`, verifies the digest, and installs it per user. Nothing is built on the user's machine and `dsh` is not touched.
+
+```sh
+# after this package is published and the archive is hosted over HTTPS
+npm install -g @you/dsh-desktop-linux
+dsh-desktop
+```
+
+Two prerequisites belong to whoever publishes, not to the installer:
+
+1. **A hosted archive.** Upload the release archive over HTTPS (for example a GitHub Release asset) and record it: `node scripts/package.mjs --archive <file> --base-url https://host/releases`.
+2. **An npm scope you own.** Build the publishable package with `DSH_DESKTOP_NPM_NAME=@you/dsh-desktop-linux npm run package:npm`, then `npm publish --access public dist/npm`.
+
+`npm install -g` cannot carry a 1.3 GB payload inside the tarball, so the package ships code and metadata only; the postinstall performs the verified download. If install scripts are disabled, `dsh-desktop install` does the same step explicitly. Until both prerequisites exist, install from a local archive as shown above.
 
 ## Data ownership
 
@@ -115,6 +140,8 @@ The packaged archive for this build is `dist/dsh-desktop-linux-0.1.0-fcc0ad46217
 ## Troubleshooting
 
 **The launcher opens an older build.** `dsh-desktop --version` prints `Release` and `Payload`. If they name a different directory than the archive just installed, the install did not activate; re-run it and check that it reports the new path. Builds made before content-addressed identities reused the version-named directory, so remove `~/.local/share/dsh-desktop-linux/releases/0.1.0-<commit>-x64` once.
+
+**The window shows no icon in the dock.** The window sets `WM_CLASS`/app id `dsh-desktop-linux` and the desktop entry declares the same `StartupWMClass`, so a dock can associate them. An installation created before this change keeps the old entry: reinstall, then log out and back in (or restart the shell) so the dock re-reads it.
 
 **The window shows no caption buttons.** They are native overlay controls: a screenshot of the page cannot include them, and a compositor without server-side decorations may hide them. Launch from the desktop entry rather than a raw `electron` process.
 

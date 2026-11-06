@@ -31,9 +31,12 @@ const errors = []
 try {
   // Test-only override for hosts whose Wayland session is unavailable; the shipped launcher
   // never forwards extra Chromium flags.
-  const extra = process.env.DSH_DESKTOP_SMOKE_OZONE ? [`--ozone-platform=${process.env.DSH_DESKTOP_SMOKE_OZONE}`] : []
+  const workspace = process.env.DSH_DESKTOP_SMOKE_WORKSPACE
+  // Chromium switches precede the app path; application arguments follow it.
+  const chromiumFlags = process.env.DSH_DESKTOP_SMOKE_OZONE ? [`--ozone-platform=${process.env.DSH_DESKTOP_SMOKE_OZONE}`] : []
+  const appArgs = workspace ? ['--workspace', workspace] : []
   app = await electron.launch({ executablePath: join(payload, 'electron/electron'),
-    args: [...extra, join(payload, 'app')], chromiumSandbox: true, env, timeout: 120000 })
+    args: [...chromiumFlags, join(payload, 'app'), ...appArgs], chromiumSandbox: true, env, timeout: 120000 })
   app.process().stderr?.on('data', chunk => errors.push(chunk.toString()))
   const page = await app.firstWindow()
   page.on('pageerror', error => errors.push(error.stack))
@@ -48,7 +51,13 @@ try {
   await page.waitForTimeout(4000)
   const bodyText = await page.locator('body').innerText()
   assert.doesNotMatch(bodyText, /Unable to create default workspace/u)
-  assert.match(bodyText, /Default workspace/u)
+  if (workspace) {
+    // `dsh-desktop <dir>` must register that folder and start a chat in it.
+    const name = workspace.split('/').filter(Boolean).at(-1)
+    assert.match(bodyText, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'))
+  } else {
+    assert.match(bodyText, /Default workspace/u)
+  }
   const details = await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === 'dsh-app://app/')
     return { preferences: window.webContents.getLastWebPreferences(), argv: process.argv, platform: process.platform, visible: window.isVisible(), devtools: window.webContents.isDevToolsOpened() }

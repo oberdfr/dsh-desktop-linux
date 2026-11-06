@@ -13,6 +13,7 @@
     "build:upstream": "node scripts/upstream.mjs build",
     "verify:upstream": "node scripts/upstream.mjs verify",
     "package:release": "node scripts/package.mjs",
+    "package:npm": "node scripts/build-npm.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:gui": "node scripts/smoke-gui.mjs",
     "postinstall": "node bin/dsh-desktop.mjs install --if-published"

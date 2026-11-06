@@ -90,7 +90,7 @@ async function main() {
   if (command === 'install' || command === 'update') { await install(); return }
   if (command === 'doctor') { await doctor(); return }
   if (args.includes('--help') || command === 'help') {
-    console.log('dsh-desktop [--payload DIRECTORY]\ndsh-desktop install|update [--archive FILE --manifest FILE]\ndsh-desktop doctor\ndsh-desktop plugin list|add|remove ...\ndsh-desktop cli <dsh arguments>\ndsh-desktop uninstall --yes\n\nDoes not replace dsh. Desktop plugin operations require the app to be fully quit.')
+    console.log('dsh-desktop [DIRECTORY] [--workspace DIRECTORY]\ndsh-desktop install|update [--archive FILE --manifest FILE]\ndsh-desktop doctor\ndsh-desktop plugin list|add|remove ...\ndsh-desktop cli <dsh arguments>\ndsh-desktop uninstall --yes\n\nA DIRECTORY opens or creates its workspace and starts a chat in it.\nDoes not replace dsh. Desktop plugin operations require the app to be fully quit.')
     return
   }
   if (command === 'uninstall') {
@@ -120,8 +120,21 @@ async function main() {
     await run(join(selected.directory, 'runtime/primary-runtime/dependencies/node/bin/node'),
       ['--expose-internals', join(selected.directory, 'app/lib/cli.js'), ...forwarded])
   } else if (command === undefined) {
-    if (args.length) throw new Error(`Unsupported option: ${args[0]}. Chromium sandbox bypass flags are not forwarded.`)
-    await run(join(selected.directory, 'electron/electron'), [join(selected.directory, 'app')])
+    const flagged = option('--workspace')
+    const unknown = args.filter(argument => argument.startsWith('-'))
+    if (unknown.length > 0) throw new Error(`Unsupported option: ${unknown[0]}. Chromium sandbox bypass flags are not forwarded.`)
+    if (args.length > 1) throw new Error('Pass at most one directory to open as a workspace.')
+    const directory = flagged ?? args[0]
+    const extra = []
+    if (directory !== undefined) {
+      const expanded = resolve(directory.replace(/^~/u, process.env.HOME ?? ''))
+      const info = await stat(expanded).catch(error => {
+        throw new Error(`Cannot open ${directory}: ${error.code === 'ENOENT' ? 'no such directory' : error.message}`)
+      })
+      if (!info.isDirectory()) throw new Error(`Cannot open ${directory}: not a directory`)
+      extra.push('--workspace', expanded)
+    }
+    await run(join(selected.directory, 'electron/electron'), [join(selected.directory, 'app'), ...extra])
   } else throw new Error(`Unknown command: ${command}`)
 }
 main().catch(error => { console.error(`dsh-desktop: ${error.message}`); process.exitCode = 1 })

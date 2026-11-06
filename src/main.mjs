@@ -1,6 +1,6 @@
 /** Linux composition root. Every imported upstream component is built without modification. */
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, protocol, session, shell, Tray, nativeImage, powerMonitor } from 'electron'
-import { access, mkdir, rm } from 'node:fs/promises'
+import { access, mkdir, realpath, rm, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { acquireLock } from '../lib/lock.mjs'
 import { DesktopProjectManager } from '#upstream/project-manager.ts'
@@ -24,6 +24,7 @@ import { readDesktopLoginShellEnvironment, resolveDesktopLoginShellConfig } from
 import { DesktopFatalRecovery } from '#upstream/fatal-recovery.ts'
 import { writeCrashReport } from '#upstream/crash-report.ts'
 import { openLinuxWelcomeWindow } from './welcome-window.mjs'
+import { createHostClient } from './host-rpc.mjs'
 import { PLATFORM_IPC } from '#upstream/platform-ipc.ts'
 import { readDeviceInfo } from '#upstream/device-info.ts'
 import { paths } from '../lib/paths.mjs'
@@ -35,11 +36,22 @@ const support = join(payload, 'runtime')
 const node = join(support, 'primary-runtime/dependencies/node/bin/node')
 const icon = join(app.getAppPath(), 'icon.png')
 app.setName('DeepSeek Harness (community Linux)')
+// GNOME and KDE group a window with its .desktop entry by app id / WM class.
+app.commandLine.appendSwitch('class', 'dsh-desktop-linux')
+if (typeof app.setDesktopName === 'function') app.setDesktopName('dsh-desktop-linux.desktop')
 app.setPath('userData', p.userData)
 app.setAppLogsPath()
 // Rootless installs use Chromium's namespace sandbox, not a root-owned setuid helper.
 app.commandLine.appendSwitch('disable-setuid-sandbox')
 protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }])
+
+/** Read `--workspace <directory>` from an Electron argument vector. */
+function workspaceArgument(argv) {
+  const index = argv.indexOf('--workspace')
+  const inline = argv.find(argument => argument.startsWith('--workspace='))
+  const value = index >= 0 ? argv[index + 1] : inline?.slice('--workspace='.length)
+  return value === undefined || value.startsWith('-') ? undefined : value
+}
 
 async function start() {
   let window, welcomeWindow, host, welcome, shortcuts, tray, removeDrag, cookie, hostUrl, hostReady
@@ -269,8 +281,41 @@ async function start() {
     cookie = await authenticateWebHost(hostUrl)
     welcome = connectDesktopWelcome(hostUrl, cookie)
   })()
-  await window.loadURL(productUrl)
   await ready
+  const hostClient = createHostClient(new URL(hostUrl).origin, cookie)
+  /**
+   * Register (or resolve) the workspace for a directory and open a chat in it.
+   * @param directory - absolute directory from the command line.
+   * @returns the workspace id that now owns a fresh Session.
+   */
+  const openWorkspace = async directory => {
+    const info = await stat(directory)
+    if (!info.isDirectory()) throw new Error(`Not a directory: ${directory}`)
+    const path = await realpath(directory)
+    // Remote methods with a named parameter wrap it: `create(request)` takes `{ request }`.
+    const { workspace } = await hostClient.invoke('workspace', 'create', { request: { path } })
+    await hostClient.invoke('session', 'create', { request: { workspaceId: workspace.workspaceId } })
+    return workspace.workspaceId
+  }
+  const requested = workspaceArgument(process.argv)
+  if (process.env.DSH_DESKTOP_DEBUG_ARGV) console.log('desktop argv', JSON.stringify(process.argv))
+  if (requested !== undefined) {
+    try { await openWorkspace(requested) }
+    catch (error) {
+      console.error('desktop workspace:', error)
+      await dialog.showMessageBox({ type: 'error', title: m().aboutProduct,
+        message: 'Could not open that folder as a workspace.', detail: error.message })
+    }
+  }
+  // A later `dsh-desktop <dir>` reaches the running instance with the same argument.
+  app.on('second-instance', (_event, argv) => {
+    const directory = workspaceArgument(argv)
+    if (directory === undefined) return
+    void openWorkspace(directory)
+      .then(() => { if (window && !window.isDestroyed()) window.webContents.reload() })
+      .catch((error) => { console.error('desktop workspace:', error) })
+  })
+  await window.loadURL(productUrl)
   const enter = async () => {
     entered = true
     window.show()
