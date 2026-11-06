@@ -8,7 +8,7 @@ This is not an official Linux release. It does not replace your `dsh` command, d
 
 ## Status
 
-Working today on Arch Linux x86_64 (GNOME/Wayland and X11): build, Electron + Host startup, Welcome, workspace, first-use default workspace, light/dark themes, narrow window, tray, quit confirmation, bundled CLI plugin add/list/remove, and a real packaged install. Measured on this machine: payload 1.3 GB, release archive 393 MB, install 7.4 s.
+Working today on Arch Linux x86_64 (GNOME/Wayland and X11): build, Electron + Host startup, Welcome, workspace, first-use default workspace, the shared Windows caption layout with Application/Edit menus and measured palette, light/dark themes, narrow window, tray, quit confirmation, fatal recovery, bundled CLI plugin add/list/remove, and a real packaged install. Measured on this machine: payload 1.3 GB, release archive 393 MB, install 7.4 s.
 
 Not yet qualified: other distributions, ARM64, the embedded account/Platform pages, and several Windows-only behaviours listed in [docs/parity.md](docs/parity.md). Those gaps are reported, not silently substituted.
 
@@ -108,7 +108,7 @@ Status is per capability, verified on this build unless noted.
 
 ## Release artefact
 
-The packaged archive for this build is `dist/dsh-desktop-linux-0.1.0-fcc0ad462172.tar.gz` (393 MB, SHA-256 `d1ba658b9eec272e49e3d2e70ffb5892236f056e0b05ace88d3df232673108ef`). It is a local build: no npm publication, no AUR package, no remote hosting.
+The packaged archive for this build is `dist/dsh-desktop-linux-0.1.0-fcc0ad462172.tar.gz` (393 MB, SHA-256 `89ae1f01c7d29dabf0131d7f6cbffaaad4d3c7e785e2709eed0c13d050ee250a`). It is a local build: no npm publication, no AUR package, no remote hosting.
 
 ## Licence
 

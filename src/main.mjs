@@ -1,6 +1,6 @@
 /** Linux composition root. Every imported upstream component is built without modification. */
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, protocol, session, shell, Tray, nativeImage, powerMonitor } from 'electron'
-import { readFile, mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { acquireLock } from '../lib/lock.mjs'
 import { DesktopProjectManager } from '#upstream/project-manager.ts'
@@ -18,8 +18,12 @@ import { DesktopQuitConfirmation } from '#upstream/quit-confirmation.ts'
 import { resolveDesktopLocale, resolveDesktopStartupLocale } from '#upstream/locale.ts'
 import { desktopClientMetadata } from '#upstream/client-metadata.ts'
 import { connectDesktopWelcome } from '#upstream/welcome-backend.ts'
-import { openWelcomeWindow } from '#upstream/welcome-window.ts'
 import { needsWelcome } from '#upstream/welcome-api.ts'
+import { WINDOWS_TITLEBAR_HEIGHT } from '#upstream/windows-layout.ts'
+import { readDesktopLoginShellEnvironment, resolveDesktopLoginShellConfig } from '#upstream/login-shell-environment.ts'
+import { DesktopFatalRecovery } from '#upstream/fatal-recovery.ts'
+import { writeCrashReport } from '#upstream/crash-report.ts'
+import { openLinuxWelcomeWindow } from './welcome-window.mjs'
 import { PLATFORM_IPC } from '#upstream/platform-ipc.ts'
 import { readDeviceInfo } from '#upstream/device-info.ts'
 import { paths } from '../lib/paths.mjs'
@@ -38,7 +42,7 @@ app.commandLine.appendSwitch('disable-setuid-sandbox')
 protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }])
 
 async function start() {
-  let window, welcomeWindow, host, welcome, shortcuts, tray, removeDrag, cookie, hostUrl
+  let window, welcomeWindow, host, welcome, shortcuts, tray, removeDrag, cookie, hostUrl, hostReady
   let quitting = false, shutdown, entered = false, ready, inspection, ownerLock
   let locale = resolveDesktopLocale(app.getLocale())
   const m = () => locale.messages
@@ -67,14 +71,30 @@ async function start() {
   const manager = new DesktopProjectManager(profile, { dsh: runtime })
   await manager.applyRelease()
 
+  const lightFill = '#f9fafb'
+  const darkFill = '#1b1b1c'
+  const chromeFill = () => nativeTheme.shouldUseDarkColors ? darkFill : lightFill
+  const symbolFill = () => nativeTheme.shouldUseDarkColors ? lightFill : '#0f1115'
+  const recovery = new DesktopFatalRecovery({
+    messages: m,
+    show: options => dialog.showMessageBox(options),
+    stop: () => { quitting = true; return stop() },
+    disablePlugins: async () => { await manager.disableAllPlugins() },
+    exit: () => { quitting = true; app.exit(1) },
+    restart: () => { quitting = true; app.relaunch(); app.exit(0) },
+    writeReport: async (error, source) => writeCrashReport(app.getPath('logs'), {
+      source, phase: hostReady ? 'running' : 'startup', error,
+      rendererConsole: [],
+      app: { name: app.name, version: app.getVersion(), platform: process.platform, arch: process.arch,
+        electron: process.versions.electron, node: process.versions.node, locale: locale.id },
+      time: new Date(),
+    }),
+    revealReport: async path => { await access(path); shell.showItemInFolder(path) },
+  })
   const fatal = async error => {
     console.error(error)
-    const report = join(app.getPath('logs'), `failure-${Date.now()}.log`)
-    await mkdir(app.getPath('logs'), { recursive: true })
-    await writeFile(report, `WARNING: diagnostics may include sensitive plugin data. Review before sharing.\n${error.stack || error}\n`, { mode: 0o600 })
-    await dialog.showMessageBox({ type: 'error', title: m().aboutProduct,
-      message: 'Desktop could not complete the operation.', detail: `Diagnostic report: ${report}` })
-    await stop()
+    try { await recovery.report(error, 'main') }
+    catch (failure) { console.error(failure); quitting = true; app.exit(1) }
   }
   const stop = async () => {
     if (shutdown) return shutdown
@@ -105,15 +125,19 @@ async function start() {
     await dialog.showMessageBox(window, { type: 'info', title: m().updateCheckTitle,
       message: 'Community Linux updates', detail: 'No public release channel is configured. Update this installation with its original dsh-desktop npm package; the upstream dsh installation is not changed.' })
   }
+  const applicationItems = () => [
+    { label: m().aboutMenu, role: 'about' },
+    { type: 'separator' },
+    { label: m().checkUpdatesMenu, click: () => { void checkUpdates() } },
+    { type: 'separator' },
+    { label: m().toggleDevToolsMenu, role: 'toggleDevTools', accelerator: 'Ctrl+Shift+I' },
+    { role: 'toggleDevTools', accelerator: 'F12', visible: false },
+    { type: 'separator' },
+    { label: m().quitApplication, role: 'quit' },
+  ]
   const menu = () => Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: m().application, submenu: [
-      { label: m().aboutMenu, role: 'about' },
-      { label: m().checkUpdatesMenu, click: () => { void checkUpdates() } },
-      { type: 'separator' },
-      { label: m().toggleDevToolsMenu, role: 'toggleDevTools', accelerator: 'Ctrl+Shift+I' },
-      { role: 'toggleDevTools', accelerator: 'F12', visible: false },
-      { type: 'separator' }, { label: m().quitApplication, role: 'quit' },
-    ] }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+    { label: m().application, submenu: applicationItems() },
+    { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]))
   shortcuts = installDesktopShortcuts(() => window, p.userData, 'linux', menu, () => ({ revision: 0, blocked: false }))
   menu()
@@ -159,17 +183,62 @@ async function start() {
   ipcMain.handle(PLATFORM_IPC.bounds, event => { authorized(event) })
   ipcMain.handle(PLATFORM_IPC.close, event => { authorized(event) })
 
+  // Linux uses the same integrated caption as Windows: hidden frame, native overlay controls,
+  // and the shared layout CSS keyed by the marker our preload adds.
+  session.defaultSession.setPreloads([join(app.getAppPath(), 'lib/preload-linux.cjs')])
   window = new BrowserWindow({ width: 1280, height: 820, minWidth: 520, minHeight: 600, show: false, icon,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
+    backgroundColor: chromeFill(),
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFill(), symbolColor: symbolFill() },
     webPreferences: { preload: join(app.getAppPath(), 'lib/preload-app.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, webviewTag: true } })
+  const syncCaption = () => {
+    if (!window || window.isDestroyed()) return
+    window.setBackgroundColor(chromeFill())
+    window.setTitleBarOverlay({ color: chromeFill(), symbolColor: symbolFill() })
+  }
+  nativeTheme.on('updated', syncCaption)
+  const sendFullscreen = () => {
+    if (!window.isDestroyed()) window.webContents.send(DESKTOP_IPC.windowFullscreen, window.isFullScreen())
+  }
+  window.on('enter-full-screen', sendFullscreen)
+  window.on('leave-full-screen', sendFullscreen)
+  window.webContents.on('did-finish-load', sendFullscreen)
   shortcuts.attach(window)
   guests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
   window.webContents.setWindowOpenHandler(({ url }) => { if (['https:', 'http:'].includes(new URL(url).protocol)) void shell.openExternal(url); return { action: 'deny' } })
   window.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== new URL(productUrl).origin) event.preventDefault() })
   window.webContents.on('render-process-gone', (_event, detail) => { if (!quitting && detail.reason !== 'clean-exit') void fatal(new Error(`Renderer exited: ${detail.reason}`)) })
   window.on('close', event => { if (!quitting) { event.preventDefault(); window.hide() } })
-  window.webContents.on('did-finish-load', () => {
-    void window.webContents.insertCSS("html[data-platform='linux'] { --dsh-font-family-text-default: 'Noto Sans', sans-serif; --dsh-font-family-code-default: 'Liberation Mono', monospace; }")
+  // The renderer measures the real palette; the fallback keeps contrast before its first report.
+  ipcMain.on(DESKTOP_IPC.windowsAppearance, (event, _language, color, symbolColor) => {
+    if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) return
+    const valid = value => typeof value === 'string' && /^(?:#[\da-f]{3,8}|rgba?\([\d.,%\s]+\))$/iu.test(value)
+    if (!valid(color) || !valid(symbolColor)) return
+    window.setTitleBarOverlay({ color, symbolColor })
+  })
+  ipcMain.handle(DESKTOP_IPC.windowsMenu, (event, name, x, y) => {
+    if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('desktop menu: rejected sender')
+    if ((name !== 'application' && name !== 'edit') || typeof x !== 'number' || typeof y !== 'number'
+      || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 100000 || y > 100000) throw new Error('desktop menu: invalid popup request')
+    const editItem = (label, keyCode, modifiers, accelerator) => ({
+      label, ...(accelerator === undefined ? {} : { accelerator }),
+      click: () => { shortcuts.sendEditingKey(keyCode, modifiers) },
+    })
+    const items = name === 'application' ? applicationItems() : [
+      editItem(m().undo, 'Z', ['control'], 'Ctrl+Z'),
+      editItem(m().redo, 'Y', ['control'], 'Ctrl+Y'),
+      { type: 'separator' },
+      editItem(m().cut, 'X', ['control'], 'Ctrl+X'),
+      editItem(m().copy, 'C', ['control'], 'Ctrl+C'),
+      editItem(m().paste, 'V', ['control'], 'Ctrl+V'),
+      editItem(m().delete, 'Delete', []),
+      { type: 'separator' },
+      editItem(m().selectAll, 'A', ['control'], 'Ctrl+A'),
+    ]
+    const zoom = window.webContents.getZoomFactor()
+    return new Promise(resolvePopup => {
+      Menu.buildFromTemplate(items).popup({ window, x: Math.round(x * zoom), y: Math.round(y * zoom), callback: resolvePopup })
+    })
   })
   try {
     tray = new Tray(nativeImage.createFromPath(icon).resize({ width: 24, height: 24 }))
@@ -178,11 +247,20 @@ async function start() {
     tray.on('click', focus)
   } catch (error) { console.warn('Tray unavailable; relaunch dsh-desktop to restore the existing window.', error.message) }
 
-  host = new DesktopHostProcess(node, runtime, profile.profile, undefined, process.env,
+  // A menu launch inherits only the session manager's environment; POSIX Desktop reads the login
+  // shell once so agent shells and Host plugins see the user's PATH without a terminal.
+  const loginShellRead = new AbortController()
+  app.on('will-quit', () => loginShellRead.abort())
+  const loginShell = readDesktopLoginShellEnvironment(process.env, resolveDesktopLoginShellConfig(process.env), {
+    signal: loginShellRead.signal,
+  }).then(result => {
+    for (const failure of result.failures) console.warn(`desktop login shell: ${failure.shell} failed (${failure.reason})`)
+    return result.environment
+  })
+  host = new DesktopHostProcess(node, runtime, profile.profile, undefined, await loginShell,
     error => { if (!quitting) void fatal(error) }, join(support, 'primary-runtime'),
     { pnpm: join(support, 'primary-runtime/dependencies/pnpm/bin/pnpm.mjs'), nodeBin: join(support, 'bin') })
   removeDrag = installDesktopFileDrag(authorized, (address, signal) => host.resolveDragResource(address, signal))
-  let hostReady
   ready = (async () => {
     hostReady = await host.start()
     if (!hostReady.injections) throw new Error('Host did not provide boot injections')
@@ -202,7 +280,7 @@ async function start() {
   }
   const state = await welcome.read()
   if (needsWelcome(state)) {
-    welcomeWindow = await openWelcomeWindow(locale, {
+    welcomeWindow = await openLinuxWelcomeWindow(locale, {
       analytics: async () => {}, analyticsEnabled: async () => false, takeNotice: async () => undefined,
       startSignIn: () => welcome.account.start(desktopClientMetadata(locale.id)),
       cancelSignIn: id => welcome.account.cancel(id),

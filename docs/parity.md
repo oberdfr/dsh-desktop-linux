@@ -14,6 +14,10 @@ Status vocabulary: **verified** (exercised on this build), **present** (shipped 
 | Profile creation under `profiles/desktop` | verified | Upstream `DesktopProjectManager` |
 | Exclusive profile ownership | verified | App lock plus a PID-recorded owner lock |
 | Window close hides, tray restores | verified | Tray icon from the packaged artwork |
+| Integrated caption with Application/Edit menus | verified | Shared `data-windows-titlebar` layout, 40 DIP, measured palette |
+| Linux font defaults without user override loss | verified | Noto Sans / Liberation Mono defaults, `npm run test:gui` |
+| Menu-launch PATH via login shell | verified | Upstream POSIX login-shell read feeds the Host environment |
+| Fatal recovery dialog | verified | Upstream recovery: restart, disable plugins, open report |
 | Quit and shutdown | verified | Graceful quit releases the profile lock; the active-task prompt is present but not exercised here |
 | Tray, relaunch focus | verified | Tray icon from packaged artwork; second instance focuses |
 | Light/dark palettes, theme source IPC | verified | Screenshots at 1280 and 620 CSS px |
@@ -28,6 +32,7 @@ Status vocabulary: **verified** (exercised on this build), **present** (shipped 
 | External plugin CLI | verified | Bundled `dsh` CLI via `dsh-desktop plugin`; app must be closed |
 | Embedded account/Platform pages | blocked | Upstream maps only `darwin`/`win32` to `desktop-mac`/`desktop-win`; Linux is not impersonated |
 | Update channels, in-app install | gap | Linux installs are updated by their npm package; no official feed |
+| "Manage dsh Command…" menu | gap | Not implemented; `dsh-desktop` already is the command |
 | macOS vibrancy, Dock, traffic lights | n/a | Platform-specific |
 | Windows NSIS installer, task dialog, tray ICO | n/a | Platform-specific |
 | Windows `session-end` shutdown detection | gap | Linux uses `powerMonitor` shutdown only |

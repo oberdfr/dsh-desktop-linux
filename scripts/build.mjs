@@ -47,6 +47,7 @@ try {
     plugins: [upstreamPlugin], define: { 'process.env.DSH_CLIENT_VERSION': JSON.stringify(lock.version) }, logLevel: 'info' }
   await build({ ...common, entryPoints: [join(root, 'src/main.mjs')], outfile: join(app, 'lib/main.js') })
   await build({ ...common, entryPoints: [join(root, 'src/cli.mjs')], outfile: join(app, 'lib/cli.js') })
+  await build({ ...common, format: 'cjs', entryPoints: [join(root, 'src/linux-preload.ts')], outfile: join(app, 'lib/preload-linux.cjs') })
   const electronPackage = requireUpstream.resolve('electron/package.json', { paths: [desktop] })
   if (!existsSync(join(output, 'electron/electron'))) {
     const { downloadArtifact } = await import(pathToFileURL(requireUpstream.resolve('@electron/get', { paths: [desktop] })).href)

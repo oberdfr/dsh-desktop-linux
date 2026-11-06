@@ -29,8 +29,11 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 let app
 const errors = []
 try {
+  // Test-only override for hosts whose Wayland session is unavailable; the shipped launcher
+  // never forwards extra Chromium flags.
+  const extra = process.env.DSH_DESKTOP_SMOKE_OZONE ? [`--ozone-platform=${process.env.DSH_DESKTOP_SMOKE_OZONE}`] : []
   app = await electron.launch({ executablePath: join(payload, 'electron/electron'),
-    args: [join(payload, 'app')], chromiumSandbox: true, env, timeout: 120000 })
+    args: [...extra, join(payload, 'app')], chromiumSandbox: true, env, timeout: 120000 })
   app.process().stderr?.on('data', chunk => errors.push(chunk.toString()))
   const page = await app.firstWindow()
   page.on('pageerror', error => errors.push(error.stack))
@@ -57,6 +60,19 @@ try {
   assert.equal(details.preferences.webviewTag, true)
   assert.equal(details.argv.includes('--no-sandbox'), false)
   assert.equal(details.devtools, false)
+  // Linux shares the Windows caption layout: marker, height, and the Linux font defaults.
+  const caption = await page.evaluate(() => ({
+    marker: document.documentElement.hasAttribute('data-windows-titlebar'),
+    height: getComputedStyle(document.documentElement).getPropertyValue('--dsh-windows-titlebar-height').trim(),
+    platform: document.documentElement.dataset.platform,
+    font: getComputedStyle(document.body).fontFamily,
+    framePad: getComputedStyle(document.querySelector('[class*="frame"]')).paddingTop,
+  }))
+  assert.equal(caption.marker, true)
+  assert.equal(caption.height, '40px')
+  assert.equal(caption.platform, 'linux')
+  assert.match(caption.font, /Noto Sans/u)
+  assert.equal(caption.framePad, '40px')
   await page.screenshot({ path: join(output, 'desktop-light.png') })
   await app.evaluate(({ nativeTheme }) => { nativeTheme.themeSource = 'dark' })
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -65,6 +81,7 @@ try {
   await page.waitForFunction(() => innerWidth === 620)
   // Electron reports the CSS viewport before the next layout pass on Wayland.
   await page.waitForTimeout(800)
+  await page.keyboard.press('Escape')
   assert.equal(await page.evaluate(() => document.documentElement.clientWidth), 620)
   await page.screenshot({ path: join(output, 'desktop-narrow.png') })
   // Native Browser tab is opened through the real product UI, not an injected webview.
