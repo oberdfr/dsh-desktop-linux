@@ -79,14 +79,14 @@ Because the Web client has no deep-link route, the window opens on the most rece
 The published package is a thin launcher: it downloads the release archive named by its own `release.json`, verifies its size, SHA-256 and content digest, and installs it per user. Nothing is built locally and `dsh` is not touched.
 
 ```sh
-npm install -g --allow-remote https://github.com/oberdfr/dsh-desktop-linux/releases/download/v0.1.0/dsh-desktop-linux-0.1.0.tgz
+npm install -g --allow-remote=all https://github.com/oberdfr/dsh-desktop-linux/releases/download/v0.1.0/dsh-desktop-linux-0.1.0.tgz
 dsh-desktop            # first run downloads the payload, then starts the app
 ```
 
-`--allow-remote` is required because npm 11 refuses remote tarballs by default. npm 11 also blocks lifecycle scripts unless they are allowlisted, so the payload download can happen on first launch instead:
+`--allow-remote=all` is required because npm 11 refuses remote tarballs by default. npm 11 also blocks lifecycle scripts unless they are allowlisted, so the payload download can happen on first launch instead:
 
 ```sh
-npm install -g --allow-remote --allow-scripts=dsh-desktop-linux <tarball>
+npm install -g --allow-remote=all --allow-scripts=dsh-desktop-linux <tarball>
 # or let the first `dsh-desktop` run provision it
 ```
 
