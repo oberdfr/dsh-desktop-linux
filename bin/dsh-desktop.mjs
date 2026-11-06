@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { paths, releaseId } from '../lib/paths.mjs'
 import { parseManifest } from '../lib/manifest.mjs'
 import { installArchive, downloadArchive, activeRelease, withLock, verifyPayload, digest } from '../lib/install.mjs'
-import { isAlive } from '../lib/lock.mjs'
+import { isAlive, ownerCommand } from '../lib/lock.mjs'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 const p = paths()
@@ -52,15 +52,17 @@ async function requireClosed() {
   let recorded
   try { recorded = Number.parseInt(await readFile(lock, 'utf8'), 10) }
   catch (error) { if (error.code === 'ENOENT') return; throw error }
-  if (!isAlive(recorded)) return
-  throw new Error(`Close Desktop before changing plugins or installation (owner ${recorded}). Never remove a live lock.`)
+  if (!await isAlive(recorded)) return
+  const command = await ownerCommand(recorded)
+  throw new Error(`Desktop is running (pid ${recorded}${command ? `: ${command.slice(0, 120)}` : ''}). Quit it from the window menu or the tray, then retry. Never delete a live lock.`)
 }
 async function install() {
   const metadata = option('--manifest')
   const archive = option('--archive')
   const declared = parseManifest(JSON.parse(await readFile(metadata ? resolve(metadata) : join(packageRoot, 'release.json'), 'utf8')))
   if (args.includes('--if-published') && !declared.artifact) return
-  await requireClosed()
+  // Installing writes a new release directory and switches the active pointer; a running
+  // instance keeps using the files it already loaded and picks up the new release on restart.
   const input = archive ? resolve(archive) : await downloadArchive(p, declared)
   // A locally supplied archive is trusted by the user's selection; its own embedded
   // release identity still has to match, and the digest binds the exact bytes installed.
@@ -68,6 +70,8 @@ async function install() {
     url: 'https://local.invalid/local-archive.tar.gz', sha256: await digest(input), bytes: (await stat(input)).size } }
   const directory = await installArchive(p, input, manifest)
   console.log(`Installed Desktop ${manifest.distributionVersion} / Harness ${manifest.upstreamVersion}\n${directory}`)
+  const running = Number.parseInt(await readFile(join(p.dshHome, 'profiles/desktop/linux-desktop-owner.lock'), 'utf8').catch(() => ''), 10)
+  if (await isAlive(running)) console.log(`Desktop is running (pid ${running}): close and reopen it to use this release.`)
 }
 async function doctor() {
   const checks = { platform: process.platform, arch: process.arch, display: Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY),
@@ -86,7 +90,8 @@ async function doctor() {
   if (checks.warnings.length) process.exitCode = 1
 }
 async function main() {
-  const command = args[0]?.startsWith('--') ? undefined : args.shift()
+  const commands = new Set(['install', 'update', 'doctor', 'help', 'plugin', 'cli', 'uninstall'])
+  const command = args[0] !== undefined && commands.has(args[0]) ? args.shift() : undefined
   if (command === 'install' || command === 'update') { await install(); return }
   if (command === 'doctor') { await doctor(); return }
   if (args.includes('--help') || command === 'help') {
@@ -120,7 +125,9 @@ async function main() {
     await run(join(selected.directory, 'runtime/primary-runtime/dependencies/node/bin/node'),
       ['--expose-internals', join(selected.directory, 'app/lib/cli.js'), ...forwarded])
   } else if (command === undefined) {
-    const flagged = option('--workspace')
+    const inline = args.find(argument => argument.startsWith('--workspace='))
+    const flagged = option('--workspace') ?? (inline === undefined ? undefined : inline.slice('--workspace='.length))
+    args.splice(0, args.length, ...args.filter(argument => argument !== inline))
     const unknown = args.filter(argument => argument.startsWith('-'))
     if (unknown.length > 0) throw new Error(`Unsupported option: ${unknown[0]}. Chromium sandbox bypass flags are not forwarded.`)
     if (args.length > 1) throw new Error('Pass at most one directory to open as a workspace.')
