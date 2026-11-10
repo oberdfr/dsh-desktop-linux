@@ -80,14 +80,14 @@ The published package is a thin launcher: it downloads the release archive named
 
 ```sh
 npm install -g --allow-remote=all https://github.com/oberdfr/dsh-desktop-linux/releases/download/v0.1.0/dsh-desktop-linux-0.1.0.tgz
-dsh-desktop            # first run downloads the payload, then starts the app
+dsh-desktop            # first run downloads the payload (≈400 MB, progress on stderr), then starts the app
 ```
 
-`--allow-remote=all` is required because npm 11 refuses remote tarballs by default. npm 11 also blocks lifecycle scripts unless they are allowlisted, so the payload download can happen on first launch instead:
+`--allow-remote=all` is required because npm refuses remote tarballs by default. npm also blocks lifecycle scripts unless they are allowlisted; that does not matter here, because the payload download happens on first launch:
 
 ```sh
-npm install -g --allow-remote=all --allow-scripts=dsh-desktop-linux <tarball>
-# or let the first `dsh-desktop` run provision it
+# optional: let the install step do the download instead of the first launch
+npm install -g --allow-remote=all --allow-scripts=dsh-desktop-linux <tarball-or-package>
 ```
 
 Nothing is lost when the install script is blocked: `dsh-desktop` detects the missing payload, downloads and verifies it, then continues. `dsh-desktop install` performs the same step explicitly.
