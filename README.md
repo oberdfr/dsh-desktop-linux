@@ -155,6 +155,35 @@ The packaged archive for this build is `dist/dsh-desktop-linux-0.1.0-fcc0ad46217
 
 **Nothing appears on Wayland.** Confirm `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` in the launching environment; the application reports the Chromium failure instead of falling back to `--no-sandbox`.
 
+## Updating to a new upstream release
+
+The Desktop carries its own Harness runtime, so `npm i -g @deepseek-ai/dsh@latest` does **not** update it. A new upstream release becomes a new Desktop release built from that exact commit.
+
+**As a user**, update the launcher package; the first run provisions the payload it names:
+
+```sh
+npm install -g --allow-remote=all <new release tarball URL>
+dsh-desktop --version     # Release … must name the new build
+```
+
+A running instance keeps its loaded files; close and reopen it. The previous payload stays on disk for rollback until the next install prunes it.
+
+**As the maintainer**, one command per upstream release:
+
+```sh
+node scripts/update-upstream.mjs v0.2.3-rc.1   # resolves the tag, rewrites upstream.lock.json and release.json
+npm run build:upstream                          # clone/check out that commit, build artifacts + native addons
+npm run build                                   # assemble the payload
+npm test && npm run test:gui
+npm run package:release -- --base-url https://github.com/oberdfr/dsh-desktop-linux/releases/download/v<dist>
+gh release create v<dist> dist/*.tar.gz
+DSH_DESKTOP_NPM_NAME=dsh-desktop-linux npm run package:npm
+```
+
+`update-upstream.mjs` refuses a tag that does not resolve to exactly one commit, records the resolved commit (not the tag) so a moved tag cannot change what was built, and bumps the distribution version. The build then verifies that commit and a clean tracked tree before and after, so an upstream that changed its exported modules fails loudly instead of shipping a broken payload.
+
+Nothing about this touches the upstream repository: it is cloned read-only into `.cache/upstream` at the pinned commit.
+
 ## Licence
 
 MIT for this carrier. The payload redistributes DeepSeek Harness under its own MIT licence (`UPSTREAM-LICENSE` in the payload) and third-party components under their respective terms.
