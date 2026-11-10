@@ -81,7 +81,15 @@ async function doctor() {
     checks.installation = installed.manifest
     const libraries = execFileSync('ldd', [join(installed.directory, 'electron/electron')], { encoding: 'utf8' })
     checks.warnings.push(...libraries.split('\n').filter(line => line.includes('not found')))
-  } catch (error) { checks.warnings.push(error.message) }
+  } catch (error) {
+    // A missing payload is the normal state after `npm install -g`: the launcher provisions it.
+    if (error.code === 'ENOENT') {
+      const declared = JSON.parse(await readFile(join(packageRoot, 'release.json'), 'utf8'))
+      checks.payload = 'not installed yet; the first dsh-desktop run downloads it'
+      checks.release = { version: declared.distributionVersion, upstream: declared.upstreamVersion,
+        archive: declared.artifact?.url ?? null, bytes: declared.artifact?.bytes ?? null }
+    } else checks.warnings.push(error.message)
+  }
   try { await access(p.lock); checks.warnings.push(`An installation lock exists: ${p.lock}`) }
   catch (error) { if (error.code !== 'ENOENT') throw error }
   if (!checks.glibc) checks.warnings.push('The first release requires glibc; musl is not qualified.')
